@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@android:color/black">
+
+    <TextView
+        android:id="@+id/pickerTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Choose Language"
+        android:textColor="@android:color/white"
+        android:textStyle="bold"
+        android:textSize="18sp"
+        android:padding="8dp"
+        android:background="#221A2E" />
+
+    <TextView
+        android:id="@+id/searchQuery"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="#D8BBFF"
+        android:textSize="18sp"
+        android:padding="8dp"
+        android:hint="Press number keys to search…"
+        android:textColorHint="#555555" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/languageList"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:background="#221A2E"
+        android:padding="8dp"
+        android:gravity="center"
+        android:text="Center/OK to select"
+        android:textColor="#BB86FC" />
+</LinearLayout>
