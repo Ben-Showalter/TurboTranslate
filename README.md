@@ -46,6 +46,51 @@ other — hold to talk, release to see the translation. Part of the same
   English-only, so it can't speak the translated/non-English side).
 - **DEL/Back**: cancels an in-progress recording if one's running,
   otherwise exits the app.
+- **`0` key (or Menu)**: opens Options — Change language, Take photo,
+  and Check for updates (see "Updates" below).
+
+### Key map
+
+| Key | What it does |
+|---|---|
+| Left softkey / `7` | Hold to talk in the other language → English |
+| Right softkey / `9` | Hold to talk in English → the other language |
+| `*` | Language picker |
+| `#` | Photo translate |
+| `0` / Menu | Options (language, photo, check for updates) |
+| D-pad Up/Down | Step through the transcript |
+| OK (center) | Copy the highlighted translation |
+| Back / DEL | Cancel a recording, otherwise exit |
+
+The right softkey would normally be Options on these phones (see
+Flip-DumbPhoneGuide), but here both softkeys are push-to-talk, so
+Options lives on `0` instead.
+
+## Updates
+
+TurboTranslate updates itself from this repo's GitHub Releases, the same
+way Flip Launcher does. About once a week, when you open the app, it
+checks for a newer version and asks whether to install it. You can also
+check any time: press `0`, select **Check for updates**, press OK. A
+Wi-Fi connection is preferred for the download; the prompt tells you if
+you're on mobile data.
+
+The first time you choose **Install**, Android asks whether TurboTranslate
+may install apps:
+
+1. The "Install unknown apps" screen for TurboTranslate opens. Press OK
+   on **Allow from this source** to turn it on.
+2. Press Back to return to TurboTranslate.
+3. Press `0`, select **Check for updates**, press OK, then select
+   **Install** again.
+
+After the download, the system installer opens: select **Install**
+(D-pad down to it, then OK). Your saved conversation is kept.
+
+An update only installs over a copy signed with the same release key. If
+the copy on your phone was built from Android Studio (a debug build),
+uninstall it once and install the first release APK from the Releases
+page by hand. Updates work automatically after that.
 
 This app is separate from TurboText (the texting app) — different
 package, different APK, its own Groq API key. They don't share any code
@@ -108,6 +153,45 @@ if prompted, then confirm Install. Accept the microphone permission
 prompt the first time you hold a softkey to talk — you'll need to press
 that softkey a second time after granting it, since the first hold is
 consumed by the permission dialog.
+
+## Publishing an update
+
+Releases are published by hand: no CI is involved, and the signing key
+never leaves your computer. The repo has to stay **public**, because the
+app reads its Releases without logging in.
+
+### One-time: create the release signing key
+
+```
+keytool -genkeypair -v -keystore turbotranslate-release.jks -keyalg RSA -keysize 2048 -validity 10000 -alias turbotranslate
+```
+
+Then create `keystore.properties` next to `settings.gradle`. It's
+gitignored, so it never gets committed:
+
+```properties
+storeFile=C:/path/to/turbotranslate-release.jks
+storePassword=...
+keyAlias=turbotranslate
+keyPassword=...
+```
+
+**Back up the `.jks` file and its passwords.** Android installs an update
+only if it's signed with the same key as the installed app. If you lose
+the key, every phone has to uninstall and reinstall.
+
+### Each release
+
+1. In `app/build.gradle`, raise `versionCode` by 1 and set `versionName`
+   (e.g. `"1.1"`). Commit that.
+2. Build the signed APK: **Build > Generate Signed Bundle / APK** (or run
+   `gradlew assembleRelease`). The output is
+   `app/build/outputs/apk/release/app-release.apk`.
+3. On GitHub, go to **Releases > Draft a new release**. Create the tag
+   `v<versionName>` (e.g. `v1.1`), attach `app-release.apk`, and click
+   **Publish release**. Don't mark it as a draft or pre-release, because
+   the app only looks at the latest full release. It compares that tag
+   with its own `versionName`.
 
 ## Notes
 

@@ -21,6 +21,15 @@ object SettingsHelper {
         prefs(context).edit().putString("other_language", language).apply()
     }
 
+    /** When TranslatorActivity last started an automatic update check
+     *  (epoch ms, 0 = never) — see UpdateChecker. */
+    fun getLastUpdateCheckAt(context: Context): Long =
+        prefs(context).getLong("last_update_check_at", 0L)
+
+    fun setLastUpdateCheckAt(context: Context, time: Long) {
+        prefs(context).edit().putLong("last_update_check_at", time).apply()
+    }
+
     /** Persists the transcript across app restarts — called after every
      *  new entry so a force-close never loses anything. Only the last
      *  MAX_TRANSCRIPT_ENTRIES are ever saved (the adapter itself already

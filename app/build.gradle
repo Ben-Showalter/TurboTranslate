@@ -32,6 +32,16 @@ if (groqApiKey == null && turboKeyFolder != null) {
 if (groqApiKey == null) groqApiKey = ''
 // -------------------------------------------------------------------------
 
+// Release signing key, kept out of git: a `keystore.properties` at the repo
+// root (see README, "Publishing an update"). Without it, release builds are
+// left unsigned so fresh checkouts still build.
+def keystoreProps = null
+def keystorePropsFile = rootProject.file('keystore.properties')
+if (keystorePropsFile.exists()) {
+    keystoreProps = new Properties()
+    keystoreProps.load(new FileInputStream(keystorePropsFile))
+}
+
 android {
     namespace 'com.turbotranslate.app'
     compileSdk 33
@@ -45,8 +55,22 @@ android {
         buildConfigField "String", "GROQ_API_KEY", "\"${groqApiKey}\""
     }
 
+    signingConfigs {
+        if (keystoreProps != null) {
+            release {
+                storeFile rootProject.file(keystoreProps.getProperty('storeFile'))
+                storePassword keystoreProps.getProperty('storePassword')
+                keyAlias keystoreProps.getProperty('keyAlias')
+                keyPassword keystoreProps.getProperty('keyPassword')
+            }
+        }
+    }
+
     buildTypes {
         release {
+            // Every published release must be signed with this same key, and
+            // carry a higher versionCode, or phones refuse the in-app update.
+            if (keystoreProps != null) signingConfig signingConfigs.release
             minifyEnabled false
         }
     }
@@ -80,4 +104,6 @@ dependencies {
     // JVM/Android artifacts and isn't worth the added Gradle-resolution
     // risk for what we need here.
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+
+    testImplementation 'junit:junit:4.13.2'
 }

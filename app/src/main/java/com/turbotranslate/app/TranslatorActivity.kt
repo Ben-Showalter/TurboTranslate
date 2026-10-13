@@ -14,6 +14,7 @@ import android.view.KeyEvent
 import android.view.View
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -43,6 +44,10 @@ import java.io.File
  * `#` key: takes a photo (same camera-capture pattern as FlipText's photo
  * attach), sends it to a Groq vision model to read and translate any
  * text in it, and adds the result to the transcript.
+ *
+ * `0` key (or Menu): opens Options — change language, take photo, check
+ * GitHub for a newer version (UpdateChecker). The update check also runs
+ * on its own about once a week when the app is opened.
  */
 class TranslatorActivity : AppCompatActivity() {
 
@@ -81,6 +86,18 @@ class TranslatorActivity : AppCompatActivity() {
 
     private var pendingPhotoUri: Uri? = null
 
+    // An update check is in flight — keeps a repeat `0` press or resume
+    // from starting a second one.
+    private var updateCheckRunning = false
+
+    // True between onPause and onResume, so a finished automatic update
+    // check doesn't pop its prompt over the camera or language picker.
+    private var isAway = false
+
+    // Set when this window saw the DOWN of 0/Menu, so the UP of a press
+    // that began elsewhere (or inside the Options dialog) is ignored.
+    private var optionsKeySeenDown = false
+
     companion object {
         private const val RECORD_AUDIO_REQUEST_CODE = 300
         private const val CAMERA_PERMISSION_REQUEST_CODE = 301
@@ -118,12 +135,72 @@ class TranslatorActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        isAway = false
         // The other language may have just changed in LanguagePickerActivity —
         // refresh every label that names it.
         val other = SettingsHelper.getOtherLanguage(this)
-        titleBar.text = "English ⇄ $other  (* language, # photo)"
+        titleBar.text = "English ⇄ $other  (* lang # photo 0 opts)"
         softLeftLabel.text = "Hold 7: $other"
         softRightLabel.text = "Hold 9: English"
+        maybeCheckForUpdate()
+    }
+
+    /**
+     * Checks GitHub for a newer release about once a week (the app is
+     * opened often enough that no background scheduler is needed) and, if
+     * there is one, asks whether to install it. Same as Flip Launcher's
+     * Home screen check; Options > Check for updates runs one on demand.
+     */
+    private fun maybeCheckForUpdate() {
+        val now = System.currentTimeMillis()
+        val last = SettingsHelper.getLastUpdateCheckAt(this)
+        // A last-check time in the future means the clock was turned back; check anyway.
+        if (now - last in 0 until UpdateChecker.CHECK_INTERVAL_MS) return
+        if (updateCheckRunning || recordingSide != null) return
+        // Recorded up front so resumes while the check is in flight don't start another.
+        SettingsHelper.setLastUpdateCheckAt(this, now)
+        updateCheckRunning = true
+        fetchLatestUpdate { result ->
+            updateCheckRunning = false
+            if (result.isFailure) {
+                // Offline or rate-limited: try again in a day rather than a week.
+                SettingsHelper.setLastUpdateCheckAt(
+                    this,
+                    now - UpdateChecker.CHECK_INTERVAL_MS + UpdateChecker.RETRY_AFTER_FAILURE_MS
+                )
+            }
+            val release = result.getOrNull() ?: return@fetchLatestUpdate
+            if (recordingSide == null && pendingPhotoUri == null && !isAway) {
+                showUpdatePrompt(release)
+            } else {
+                // Mid-conversation (or off at the camera/language picker) —
+                // don't interrupt; ask on the next resume instead.
+                SettingsHelper.setLastUpdateCheckAt(this, 0L)
+            }
+        }
+    }
+
+    /** Manual counterpart to [maybeCheckForUpdate], from Options. */
+    private fun checkForUpdateNow() {
+        if (updateCheckRunning || recordingSide != null) return
+        Toast.makeText(this, "Checking for updates… (v${UpdateChecker.installedVersion(this)} installed)", Toast.LENGTH_SHORT).show()
+        updateCheckRunning = true
+        fetchLatestUpdate { result ->
+            updateCheckRunning = false
+            val release = result.getOrNull()
+            when {
+                result.isFailure ->
+                    Toast.makeText(this, "Couldn't check for updates", Toast.LENGTH_LONG).show()
+                release == null ->
+                    Toast.makeText(this, "TurboTranslate is up to date", Toast.LENGTH_SHORT).show()
+                else -> showUpdatePrompt(release)
+            }
+        }
+    }
+
+    override fun onPause() {
+        isAway = true
+        super.onPause()
     }
 
     private fun startRecording(side: RecordSide) {
@@ -390,6 +467,28 @@ class TranslatorActivity : AppCompatActivity() {
         )
     }
 
+    /** Options menu on `0`/Menu — a plain setItems dialog, which the
+     *  D-pad drives as is. The right soft key would be the usual Options
+     *  key on these phones, but here it's English push-to-talk. */
+    private fun showOptionsMenu() {
+        if (recordingSide != null) return
+        val items = arrayOf(
+            "Change language (*)",
+            "Take photo (#)",
+            "Check for updates (v${UpdateChecker.installedVersion(this)})"
+        )
+        AlertDialog.Builder(this)
+            .setTitle("Options")
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> openLanguagePicker()
+                    1 -> startPhotoCapture()
+                    2 -> checkForUpdateNow()
+                }
+            }
+            .show()
+    }
+
     private fun openLanguagePicker() {
         if (recordingSide != null) return
         startActivity(Intent(this, LanguagePickerActivity::class.java))
@@ -424,6 +523,12 @@ class TranslatorActivity : AppCompatActivity() {
                     startPhotoCapture()
                     return true
                 }
+                // Opened on UP (below) so the release doesn't land in
+                // the dialog and pick its focused item.
+                KeyEvent.KEYCODE_0, KeyEvent.KEYCODE_MENU -> {
+                    if (event.repeatCount == 0) optionsKeySeenDown = true
+                    return true
+                }
                 // Moves the highlighted message instead of raw-scrolling —
                 // this is what center/OK below acts on.
                 KeyEvent.KEYCODE_DPAD_UP -> { stepSelection(-1); return true }
@@ -454,6 +559,11 @@ class TranslatorActivity : AppCompatActivity() {
                 KeyEvent.KEYCODE_SOFT_LEFT, KeyEvent.KEYCODE_7 -> {
                     handleSoftKeyUp(RecordSide.OTHER, sawDown = leftKeySeenDown)
                     leftKeySeenDown = false
+                    return true
+                }
+                KeyEvent.KEYCODE_0, KeyEvent.KEYCODE_MENU -> {
+                    if (optionsKeySeenDown && !event.isCanceled) showOptionsMenu()
+                    optionsKeySeenDown = false
                     return true
                 }
             }

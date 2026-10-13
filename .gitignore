@@ -2,3 +2,11 @@
 /.gradle/
 /app/build/
 /app/build/intermediates/javac/debug/classes/
+
+# Release signing key (see README, "Publishing an update")
+*.jks
+*.keystore
+keystore.properties
+
+# SDK path + Groq API key (see README, Step 3) — never commit
+local.properties
