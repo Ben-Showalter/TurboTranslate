@@ -7,8 +7,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.provider.MediaStore
+import android.provider.Settings
 import android.util.Log
 import android.view.KeyEvent
 import android.view.View
@@ -101,8 +104,13 @@ class TranslatorActivity : AppCompatActivity() {
     companion object {
         private const val RECORD_AUDIO_REQUEST_CODE = 300
         private const val CAMERA_PERMISSION_REQUEST_CODE = 301
+        private const val STORAGE_PERMISSION_REQUEST_CODE = 302
         private const val CAMERA_CAPTURE_REQUEST_CODE = 400
         private const val TAG = "TurboTranslateActivity"
+
+        // Asked at most once per process, so a declined prompt doesn't
+        // come back on every resume.
+        private var keyAccessPrompted = false
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -142,7 +150,62 @@ class TranslatorActivity : AppCompatActivity() {
         titleBar.text = "English ⇄ $other  (* lang # photo 0 opts)"
         softLeftLabel.text = "Hold 7: $other"
         softRightLabel.text = "Hold 9: English"
+        checkApiKeyAccess()
         maybeCheckForUpdate()
+    }
+
+    /**
+     * The Groq key is read from GroqConfig.KEY_FILE_PATH, which needs
+     * storage access. If there's no usable key yet, asks for that access
+     * (or, with access already granted, says where to paste the key).
+     */
+    private fun checkApiKeyAccess() {
+        // Creates the file once access exists, if no other Turbo app has.
+        GroqConfig.ensureKeyFileExists()
+        if (GroqConfig.getApiKey().isNotBlank() || keyAccessPrompted) return
+        keyAccessPrompted = true
+        if (hasStorageAccess()) {
+            showMissingKeyToast()
+        } else {
+            requestStorageAccess()
+        }
+    }
+
+    private fun hasStorageAccess(): Boolean =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Environment.isExternalStorageManager()
+        } else {
+            ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
+                PackageManager.PERMISSION_GRANTED
+        }
+
+    private fun requestStorageAccess() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // The general list rather than the per-app deep link, which
+            // doesn't resolve on these OEM builds (same as TurboVoice).
+            try {
+                startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+            } catch (e: Exception) {
+                // Toast below still gives the path.
+            }
+            Toast.makeText(
+                this,
+                "To read your Groq key: Settings > Apps > Special app access > All files access > TurboTranslate",
+                Toast.LENGTH_LONG
+            ).show()
+        } else {
+            ActivityCompat.requestPermissions(
+                this, arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE), STORAGE_PERMISSION_REQUEST_CODE
+            )
+        }
+    }
+
+    private fun showMissingKeyToast() {
+        Toast.makeText(
+            this,
+            "No Groq API key — paste it into ${GroqConfig.KEY_FILE_PATH}",
+            Toast.LENGTH_LONG
+        ).show()
     }
 
     /**
@@ -242,6 +305,20 @@ class TranslatorActivity : AppCompatActivity() {
                     ).show()
                 }
                 pendingRecordSide = null
+            }
+            STORAGE_PERMISSION_REQUEST_CODE -> {
+                Log.i(TAG, "storage permission result: granted=$granted")
+                if (granted) {
+                    GroqConfig.ensureKeyFileExists()
+                    if (GroqConfig.getApiKey().isBlank()) showMissingKeyToast()
+                } else {
+                    Toast.makeText(
+                        this,
+                        "Storage permission denied — TurboTranslate can't read your Groq key. " +
+                            "Enable it: Settings > Apps > TurboTranslate > Permissions",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
             }
             CAMERA_PERMISSION_REQUEST_CODE -> {
                 Log.i(TAG, "CAMERA permission result: granted=$granted")

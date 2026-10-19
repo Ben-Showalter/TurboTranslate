@@ -114,30 +114,40 @@ voice-recording and translation helpers, the audio-silence trimmer).
 
 ## Step 3 — Set the Groq API key
 
-The key is no longer pasted directly into a source file — it's read at
-build time from `local.properties` (the same gitignored file Android
-Studio already uses for your SDK path), so it's never committed if this
-project's source gets published, same as TurboText/TurboVoice.
+The key isn't built into the app. It's read on the phone from the same
+text file TurboVoice and TurboText use:
 
-Your existing key has already been carried over, so this build works as
-soon as it opens. To change it later, open `local.properties` (next to
-`settings.gradle`, alongside the `sdk.dir` line) and edit:
 ```
-GROQ_API_KEY=gsk_your_actual_key_here
+Internal storage/Turbo Key/groq_api_key.txt
 ```
 
-**About "the turbo key folder"**: I don't have visibility into how your
-other Turbo apps' key storage is actually structured, so I built this on
-the standard `local.properties` convention instead of guessing wrong.
-`app/build.gradle` also already supports a second option — set
+If you already use TurboVoice or TurboText, the file is there and
+TurboTranslate picks it up. Otherwise, open TurboTranslate once after
+granting storage access (below) and it creates an empty file for you.
+Paste your key (from https://console.groq.com/keys) into it on its own
+line. You may need to restart the phone before the folder shows up over
+USB.
+
+TurboTranslate needs storage access to read that file. The first time
+you open it, it asks:
+
+- **Android 10 and older (e.g. the Kyocera DuraXV Extreme)**: a
+  permission prompt appears. Select **Allow** and press OK.
+- **Android 11 and newer**: the "All files access" list opens. Select
+  **TurboTranslate**, press OK on **Allow access to manage all files**,
+  then press Back.
+
+Or grant it over ADB:
 ```
-TURBO_KEY_FOLDER=C:\path\to\your\shared\folder
+adb shell pm grant com.turbotranslate.app android.permission.READ_EXTERNAL_STORAGE
+adb shell pm grant com.turbotranslate.app android.permission.WRITE_EXTERNAL_STORAGE
 ```
-in `local.properties`, and it'll read a `groq.key` file (just the key,
-nothing else) from inside that folder instead, if `GROQ_API_KEY` isn't
-already set directly. Tell me the actual folder path and file format
-you're using and I'll adjust `app/build.gradle`'s lookup to match exactly
-rather than the placeholder convention above.
+(Android 11+: `adb shell appops set com.turbotranslate.app MANAGE_EXTERNAL_STORAGE allow`.)
+
+For debug builds from Android Studio only, a `GROQ_API_KEY=...` line in
+`local.properties` (gitignored, next to `settings.gradle`) is used as a
+fallback when the phone has no key file. Release builds never include it,
+because release APKs are published publicly.
 
 ## Step 4 — Build the APK
 
