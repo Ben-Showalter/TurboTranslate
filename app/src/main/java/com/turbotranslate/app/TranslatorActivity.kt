@@ -42,13 +42,13 @@ import java.io.File
  * read all of it before moving to the next. Center/OK: copy the
  * highlighted message's translation to the clipboard.
  *
- * `*` key: opens LanguagePickerActivity to change the other language.
  *
  * `#` key: takes a photo (same camera-capture pattern as FlipText's photo
  * attach), sends it to a Groq vision model to read and translate any
  * text in it, and adds the result to the transcript.
  *
- * `0` key (or Menu): opens Options — change language, take photo, check
+ * `*` key (or Menu): opens Options — change language (LanguagePickerActivity),
+ * take photo, check
  * GitHub for a newer version (UpdateChecker). The update check also runs
  * on its own about once a week when the app is opened.
  */
@@ -89,7 +89,7 @@ class TranslatorActivity : AppCompatActivity() {
 
     private var pendingPhotoUri: Uri? = null
 
-    // An update check is in flight — keeps a repeat `0` press or resume
+    // An update check is in flight — keeps a repeat Options press or resume
     // from starting a second one.
     private var updateCheckRunning = false
 
@@ -97,7 +97,7 @@ class TranslatorActivity : AppCompatActivity() {
     // check doesn't pop its prompt over the camera or language picker.
     private var isAway = false
 
-    // Set when this window saw the DOWN of 0/Menu, so the UP of a press
+    // Set when this window saw the DOWN of */Menu, so the UP of a press
     // that began elsewhere (or inside the Options dialog) is ignored.
     private var optionsKeySeenDown = false
 
@@ -147,7 +147,7 @@ class TranslatorActivity : AppCompatActivity() {
         // The other language may have just changed in LanguagePickerActivity —
         // refresh every label that names it.
         val other = SettingsHelper.getOtherLanguage(this)
-        titleBar.text = "English ⇄ $other  (* lang # photo 0 opts)"
+        titleBar.text = "English ⇄ $other  (* options, # photo)"
         softLeftLabel.text = "Hold 7: $other"
         softRightLabel.text = "Hold 9: English"
         checkApiKeyAccess()
@@ -544,13 +544,13 @@ class TranslatorActivity : AppCompatActivity() {
         )
     }
 
-    /** Options menu on `0`/Menu — a plain setItems dialog, which the
+    /** Options menu on `*`/Menu — a plain setItems dialog, which the
      *  D-pad drives as is. The right soft key would be the usual Options
      *  key on these phones, but here it's English push-to-talk. */
     private fun showOptionsMenu() {
         if (recordingSide != null) return
         val items = arrayOf(
-            "Change language (*)",
+            "Change language",
             "Take photo (#)",
             "Check for updates (v${UpdateChecker.installedVersion(this)})"
         )
@@ -592,17 +592,14 @@ class TranslatorActivity : AppCompatActivity() {
                     }
                     return true
                 }
-                KeyEvent.KEYCODE_STAR -> {
-                    openLanguagePicker()
-                    return true
-                }
                 KeyEvent.KEYCODE_POUND -> {
                     startPhotoCapture()
                     return true
                 }
                 // Opened on UP (below) so the release doesn't land in
                 // the dialog and pick its focused item.
-                KeyEvent.KEYCODE_0, KeyEvent.KEYCODE_MENU -> {
+                // Sonim keypads send NUMPAD_MULTIPLY for `*`.
+                KeyEvent.KEYCODE_STAR, KeyEvent.KEYCODE_NUMPAD_MULTIPLY, KeyEvent.KEYCODE_MENU -> {
                     if (event.repeatCount == 0) optionsKeySeenDown = true
                     return true
                 }
@@ -638,7 +635,7 @@ class TranslatorActivity : AppCompatActivity() {
                     leftKeySeenDown = false
                     return true
                 }
-                KeyEvent.KEYCODE_0, KeyEvent.KEYCODE_MENU -> {
+                KeyEvent.KEYCODE_STAR, KeyEvent.KEYCODE_NUMPAD_MULTIPLY, KeyEvent.KEYCODE_MENU -> {
                     if (optionsKeySeenDown && !event.isCanceled) showOptionsMenu()
                     optionsKeySeenDown = false
                     return true

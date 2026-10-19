@@ -20,7 +20,7 @@ other — hold to talk, release to see the translation. Part of the same
   translation is shown large (that's the line whoever's reading the phone
   actually needs); the original transcription is shown smaller above it
   for reference.
-- **`*` key**: opens a searchable language picker — type the digits for a
+- **`*` key > Change language**: opens a searchable language picker — type the digits for a
   language's name (T9-style) to filter, D-pad Up/Down to move the
   highlight, **center/OK only** to confirm (no softkey or number-key
   alias here — those digits are already spoken for by the search).
@@ -46,7 +46,7 @@ other — hold to talk, release to see the translation. Part of the same
   English-only, so it can't speak the translated/non-English side).
 - **DEL/Back**: cancels an in-progress recording if one's running,
   otherwise exits the app.
-- **`0` key (or Menu)**: opens Options — Change language, Take photo,
+- **`*` key (or Menu)**: opens Options — Change language, Take photo,
   and Check for updates (see "Updates" below).
 
 ### Key map
@@ -55,23 +55,22 @@ other — hold to talk, release to see the translation. Part of the same
 |---|---|
 | Left softkey / `7` | Hold to talk in the other language → English |
 | Right softkey / `9` | Hold to talk in English → the other language |
-| `*` | Language picker |
 | `#` | Photo translate |
-| `0` / Menu | Options (language, photo, check for updates) |
+| `*` / Menu | Options (change language, photo, check for updates) |
 | D-pad Up/Down | Step through the transcript |
 | OK (center) | Copy the highlighted translation |
 | Back / DEL | Cancel a recording, otherwise exit |
 
 The right softkey would normally be Options on these phones (see
 Flip-DumbPhoneGuide), but here both softkeys are push-to-talk, so
-Options lives on `0` instead.
+Options lives on `*` instead.
 
 ## Updates
 
 TurboTranslate updates itself from this repo's GitHub Releases, the same
 way Flip Launcher does. About once a week, when you open the app, it
 checks for a newer version and asks whether to install it. You can also
-check any time: press `0`, select **Check for updates**, press OK. A
+check any time: press `*`, select **Check for updates**, press OK. A
 Wi-Fi connection is preferred for the download; the prompt tells you if
 you're on mobile data.
 
@@ -81,7 +80,7 @@ may install apps:
 1. The "Install unknown apps" screen for TurboTranslate opens. Press OK
    on **Allow from this source** to turn it on.
 2. Press Back to return to TurboTranslate.
-3. Press `0`, select **Check for updates**, press OK, then select
+3. Press `*`, select **Check for updates**, press OK, then select
    **Install** again.
 
 After the download, the system installer opens: select **Install**

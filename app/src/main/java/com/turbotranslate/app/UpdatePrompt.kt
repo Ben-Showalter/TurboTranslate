@@ -67,7 +67,7 @@ private fun Activity.openInstallPermissionSettings() {
     }
     Toast.makeText(
         this,
-        "Turn on \"Allow from this source\" for TurboTranslate, press Back, then 0 > Check for updates again",
+        "Turn on \"Allow from this source\" for TurboTranslate, press Back, then * > Check for updates again",
         Toast.LENGTH_LONG
     ).show()
 }
