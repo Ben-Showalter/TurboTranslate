@@ -3,33 +3,19 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
-// --- Groq API key sourcing ---------------------------------------------
-// Pulled in at build time instead of hardcoded in GroqConfig.kt, so it's
-// never committed if this project's source gets published (matches how
-// TurboText/TurboVoice keep their keys out of their public repos too).
-//
-// Lookup order:
-//   1. A GROQ_API_KEY line in local.properties (this project's own copy —
-//      already gitignored, since Android Studio uses it for sdk.dir).
-//   2. A "turbo key folder" shared across your Turbo apps, if you point
-//      TURBO_KEY_FOLDER at it below (or set that same property in
-//      local.properties) — expects a groq.key file inside containing
-//      just the key. Ask Claude to wire this to the real path/format if
-//      it's structured differently.
+// --- Groq API key fallback ---------------------------------------------
+// The app reads its key at runtime from Internal storage/Turbo Key/
+// groq_api_key.txt on the phone (GroqConfig.kt), shared with TurboVoice
+// and TurboText. A GROQ_API_KEY line in local.properties (gitignored) is
+// only baked in as a fallback for phones without that file, and only in
+// debug builds: release APKs are published on the public Releases page,
+// where anyone could pull a baked-in key back out.
 def localProps = new Properties()
 def localPropsFile = rootProject.file('local.properties')
 if (localPropsFile.exists()) {
     localProps.load(new FileInputStream(localPropsFile))
 }
-def turboKeyFolder = localProps.getProperty('TURBO_KEY_FOLDER')
-def groqApiKey = localProps.getProperty('GROQ_API_KEY')
-if (groqApiKey == null && turboKeyFolder != null) {
-    def keyFile = new File(turboKeyFolder, 'groq.key')
-    if (keyFile.exists()) {
-        groqApiKey = keyFile.text.trim()
-    }
-}
-if (groqApiKey == null) groqApiKey = ''
+def groqApiKey = localProps.getProperty('GROQ_API_KEY') ?: ''
 // -------------------------------------------------------------------------
 
 // Release signing key, kept out of git: a `keystore.properties` at the repo
@@ -50,9 +36,8 @@ android {
         applicationId "com.turbotranslate.app"
         minSdk 24
         targetSdk 33
-        versionCode 1
-        versionName "1.0"
-        buildConfigField "String", "GROQ_API_KEY", "\"${groqApiKey}\""
+        versionCode 2
+        versionName "1.1"
     }
 
     signingConfigs {
@@ -67,7 +52,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            buildConfigField "String", "GROQ_API_KEY", "\"${groqApiKey}\""
+        }
         release {
+            buildConfigField "String", "GROQ_API_KEY", "\"\""
             // Every published release must be signed with this same key, and
             // carry a higher versionCode, or phones refuse the in-app update.
             if (keystoreProps != null) signingConfig signingConfigs.release

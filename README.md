@@ -20,7 +20,7 @@ other — hold to talk, release to see the translation. Part of the same
   translation is shown large (that's the line whoever's reading the phone
   actually needs); the original transcription is shown smaller above it
   for reference.
-- **`*` key**: opens a searchable language picker — type the digits for a
+- **`*` key > Change language**: opens a searchable language picker — type the digits for a
   language's name (T9-style) to filter, D-pad Up/Down to move the
   highlight, **center/OK only** to confirm (no softkey or number-key
   alias here — those digits are already spoken for by the search).
@@ -46,7 +46,7 @@ other — hold to talk, release to see the translation. Part of the same
   English-only, so it can't speak the translated/non-English side).
 - **DEL/Back**: cancels an in-progress recording if one's running,
   otherwise exits the app.
-- **`0` key (or Menu)**: opens Options — Change language, Take photo,
+- **`*` key (or Menu)**: opens Options — Change language, Take photo,
   and Check for updates (see "Updates" below).
 
 ### Key map
@@ -55,23 +55,22 @@ other — hold to talk, release to see the translation. Part of the same
 |---|---|
 | Left softkey / `7` | Hold to talk in the other language → English |
 | Right softkey / `9` | Hold to talk in English → the other language |
-| `*` | Language picker |
 | `#` | Photo translate |
-| `0` / Menu | Options (language, photo, check for updates) |
+| `*` / Menu | Options (change language, photo, check for updates) |
 | D-pad Up/Down | Step through the transcript |
 | OK (center) | Copy the highlighted translation |
 | Back / DEL | Cancel a recording, otherwise exit |
 
 The right softkey would normally be Options on these phones (see
 Flip-DumbPhoneGuide), but here both softkeys are push-to-talk, so
-Options lives on `0` instead.
+Options lives on `*` instead.
 
 ## Updates
 
 TurboTranslate updates itself from this repo's GitHub Releases, the same
 way Flip Launcher does. About once a week, when you open the app, it
 checks for a newer version and asks whether to install it. You can also
-check any time: press `0`, select **Check for updates**, press OK. A
+check any time: press `*`, select **Check for updates**, press OK. A
 Wi-Fi connection is preferred for the download; the prompt tells you if
 you're on mobile data.
 
@@ -81,7 +80,7 @@ may install apps:
 1. The "Install unknown apps" screen for TurboTranslate opens. Press OK
    on **Allow from this source** to turn it on.
 2. Press Back to return to TurboTranslate.
-3. Press `0`, select **Check for updates**, press OK, then select
+3. Press `*`, select **Check for updates**, press OK, then select
    **Install** again.
 
 After the download, the system installer opens: select **Install**
@@ -114,30 +113,40 @@ voice-recording and translation helpers, the audio-silence trimmer).
 
 ## Step 3 — Set the Groq API key
 
-The key is no longer pasted directly into a source file — it's read at
-build time from `local.properties` (the same gitignored file Android
-Studio already uses for your SDK path), so it's never committed if this
-project's source gets published, same as TurboText/TurboVoice.
+The key isn't built into the app. It's read on the phone from the same
+text file TurboVoice and TurboText use:
 
-Your existing key has already been carried over, so this build works as
-soon as it opens. To change it later, open `local.properties` (next to
-`settings.gradle`, alongside the `sdk.dir` line) and edit:
 ```
-GROQ_API_KEY=gsk_your_actual_key_here
+Internal storage/Turbo Key/groq_api_key.txt
 ```
 
-**About "the turbo key folder"**: I don't have visibility into how your
-other Turbo apps' key storage is actually structured, so I built this on
-the standard `local.properties` convention instead of guessing wrong.
-`app/build.gradle` also already supports a second option — set
+If you already use TurboVoice or TurboText, the file is there and
+TurboTranslate picks it up. Otherwise, open TurboTranslate once after
+granting storage access (below) and it creates an empty file for you.
+Paste your key (from https://console.groq.com/keys) into it on its own
+line. You may need to restart the phone before the folder shows up over
+USB.
+
+TurboTranslate needs storage access to read that file. The first time
+you open it, it asks:
+
+- **Android 10 and older (e.g. the Kyocera DuraXV Extreme)**: a
+  permission prompt appears. Select **Allow** and press OK.
+- **Android 11 and newer**: the "All files access" list opens. Select
+  **TurboTranslate**, press OK on **Allow access to manage all files**,
+  then press Back.
+
+Or grant it over ADB:
 ```
-TURBO_KEY_FOLDER=C:\path\to\your\shared\folder
+adb shell pm grant com.turbotranslate.app android.permission.READ_EXTERNAL_STORAGE
+adb shell pm grant com.turbotranslate.app android.permission.WRITE_EXTERNAL_STORAGE
 ```
-in `local.properties`, and it'll read a `groq.key` file (just the key,
-nothing else) from inside that folder instead, if `GROQ_API_KEY` isn't
-already set directly. Tell me the actual folder path and file format
-you're using and I'll adjust `app/build.gradle`'s lookup to match exactly
-rather than the placeholder convention above.
+(Android 11+: `adb shell appops set com.turbotranslate.app MANAGE_EXTERNAL_STORAGE allow`.)
+
+For debug builds from Android Studio only, a `GROQ_API_KEY=...` line in
+`local.properties` (gitignored, next to `settings.gradle`) is used as a
+fallback when the phone has no key file. Release builds never include it,
+because release APKs are published publicly.
 
 ## Step 4 — Build the APK
 

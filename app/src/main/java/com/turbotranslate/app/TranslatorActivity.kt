@@ -7,8 +7,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.provider.MediaStore
+import android.provider.Settings
 import android.util.Log
 import android.view.KeyEvent
 import android.view.View
@@ -39,13 +42,13 @@ import java.io.File
  * read all of it before moving to the next. Center/OK: copy the
  * highlighted message's translation to the clipboard.
  *
- * `*` key: opens LanguagePickerActivity to change the other language.
  *
  * `#` key: takes a photo (same camera-capture pattern as FlipText's photo
  * attach), sends it to a Groq vision model to read and translate any
  * text in it, and adds the result to the transcript.
  *
- * `0` key (or Menu): opens Options — change language, take photo, check
+ * `*` key (or Menu): opens Options — change language (LanguagePickerActivity),
+ * take photo, check
  * GitHub for a newer version (UpdateChecker). The update check also runs
  * on its own about once a week when the app is opened.
  */
@@ -86,7 +89,7 @@ class TranslatorActivity : AppCompatActivity() {
 
     private var pendingPhotoUri: Uri? = null
 
-    // An update check is in flight — keeps a repeat `0` press or resume
+    // An update check is in flight — keeps a repeat Options press or resume
     // from starting a second one.
     private var updateCheckRunning = false
 
@@ -94,15 +97,20 @@ class TranslatorActivity : AppCompatActivity() {
     // check doesn't pop its prompt over the camera or language picker.
     private var isAway = false
 
-    // Set when this window saw the DOWN of 0/Menu, so the UP of a press
+    // Set when this window saw the DOWN of */Menu, so the UP of a press
     // that began elsewhere (or inside the Options dialog) is ignored.
     private var optionsKeySeenDown = false
 
     companion object {
         private const val RECORD_AUDIO_REQUEST_CODE = 300
         private const val CAMERA_PERMISSION_REQUEST_CODE = 301
+        private const val STORAGE_PERMISSION_REQUEST_CODE = 302
         private const val CAMERA_CAPTURE_REQUEST_CODE = 400
         private const val TAG = "TurboTranslateActivity"
+
+        // Asked at most once per process, so a declined prompt doesn't
+        // come back on every resume.
+        private var keyAccessPrompted = false
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -139,10 +147,65 @@ class TranslatorActivity : AppCompatActivity() {
         // The other language may have just changed in LanguagePickerActivity —
         // refresh every label that names it.
         val other = SettingsHelper.getOtherLanguage(this)
-        titleBar.text = "English ⇄ $other  (* lang # photo 0 opts)"
+        titleBar.text = "English ⇄ $other  (* options, # photo)"
         softLeftLabel.text = "Hold 7: $other"
         softRightLabel.text = "Hold 9: English"
+        checkApiKeyAccess()
         maybeCheckForUpdate()
+    }
+
+    /**
+     * The Groq key is read from GroqConfig.KEY_FILE_PATH, which needs
+     * storage access. If there's no usable key yet, asks for that access
+     * (or, with access already granted, says where to paste the key).
+     */
+    private fun checkApiKeyAccess() {
+        // Creates the file once access exists, if no other Turbo app has.
+        GroqConfig.ensureKeyFileExists()
+        if (GroqConfig.getApiKey().isNotBlank() || keyAccessPrompted) return
+        keyAccessPrompted = true
+        if (hasStorageAccess()) {
+            showMissingKeyToast()
+        } else {
+            requestStorageAccess()
+        }
+    }
+
+    private fun hasStorageAccess(): Boolean =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Environment.isExternalStorageManager()
+        } else {
+            ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
+                PackageManager.PERMISSION_GRANTED
+        }
+
+    private fun requestStorageAccess() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // The general list rather than the per-app deep link, which
+            // doesn't resolve on these OEM builds (same as TurboVoice).
+            try {
+                startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+            } catch (e: Exception) {
+                // Toast below still gives the path.
+            }
+            Toast.makeText(
+                this,
+                "To read your Groq key: Settings > Apps > Special app access > All files access > TurboTranslate",
+                Toast.LENGTH_LONG
+            ).show()
+        } else {
+            ActivityCompat.requestPermissions(
+                this, arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE), STORAGE_PERMISSION_REQUEST_CODE
+            )
+        }
+    }
+
+    private fun showMissingKeyToast() {
+        Toast.makeText(
+            this,
+            "No Groq API key — paste it into ${GroqConfig.KEY_FILE_PATH}",
+            Toast.LENGTH_LONG
+        ).show()
     }
 
     /**
@@ -242,6 +305,20 @@ class TranslatorActivity : AppCompatActivity() {
                     ).show()
                 }
                 pendingRecordSide = null
+            }
+            STORAGE_PERMISSION_REQUEST_CODE -> {
+                Log.i(TAG, "storage permission result: granted=$granted")
+                if (granted) {
+                    GroqConfig.ensureKeyFileExists()
+                    if (GroqConfig.getApiKey().isBlank()) showMissingKeyToast()
+                } else {
+                    Toast.makeText(
+                        this,
+                        "Storage permission denied — TurboTranslate can't read your Groq key. " +
+                            "Enable it: Settings > Apps > TurboTranslate > Permissions",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
             }
             CAMERA_PERMISSION_REQUEST_CODE -> {
                 Log.i(TAG, "CAMERA permission result: granted=$granted")
@@ -467,13 +544,13 @@ class TranslatorActivity : AppCompatActivity() {
         )
     }
 
-    /** Options menu on `0`/Menu — a plain setItems dialog, which the
+    /** Options menu on `*`/Menu — a plain setItems dialog, which the
      *  D-pad drives as is. The right soft key would be the usual Options
      *  key on these phones, but here it's English push-to-talk. */
     private fun showOptionsMenu() {
         if (recordingSide != null) return
         val items = arrayOf(
-            "Change language (*)",
+            "Change language",
             "Take photo (#)",
             "Check for updates (v${UpdateChecker.installedVersion(this)})"
         )
@@ -515,17 +592,14 @@ class TranslatorActivity : AppCompatActivity() {
                     }
                     return true
                 }
-                KeyEvent.KEYCODE_STAR -> {
-                    openLanguagePicker()
-                    return true
-                }
                 KeyEvent.KEYCODE_POUND -> {
                     startPhotoCapture()
                     return true
                 }
                 // Opened on UP (below) so the release doesn't land in
                 // the dialog and pick its focused item.
-                KeyEvent.KEYCODE_0, KeyEvent.KEYCODE_MENU -> {
+                // Sonim keypads send NUMPAD_MULTIPLY for `*`.
+                KeyEvent.KEYCODE_STAR, KeyEvent.KEYCODE_NUMPAD_MULTIPLY, KeyEvent.KEYCODE_MENU -> {
                     if (event.repeatCount == 0) optionsKeySeenDown = true
                     return true
                 }
@@ -561,7 +635,7 @@ class TranslatorActivity : AppCompatActivity() {
                     leftKeySeenDown = false
                     return true
                 }
-                KeyEvent.KEYCODE_0, KeyEvent.KEYCODE_MENU -> {
+                KeyEvent.KEYCODE_STAR, KeyEvent.KEYCODE_NUMPAD_MULTIPLY, KeyEvent.KEYCODE_MENU -> {
                     if (optionsKeySeenDown && !event.isCanceled) showOptionsMenu()
                     optionsKeySeenDown = false
                     return true

@@ -14,7 +14,7 @@ import androidx.recyclerview.widget.RecyclerView
  *
  * Selecting is center/OK only — no softkey or number-key alias, since
  * those digits are already spoken for by the search above. Opened from
- * TranslatorActivity via the `*` key. Selecting a language (or backing
+ * TranslatorActivity's Options menu (`*` key). Selecting a language (or backing
  * out with nothing typed) both just finish() the activity — the result
  * is written straight to SettingsHelper.
  */

@@ -71,7 +71,7 @@ object GroqTranslateHelper {
 
                 val request = Request.Builder()
                     .url("https://api.groq.com/openai/v1/chat/completions")
-                    .addHeader("Authorization", "Bearer ${GroqConfig.API_KEY}")
+                    .addHeader("Authorization", "Bearer ${GroqConfig.getApiKey()}")
                     .post(requestBody)
                     .build()
 

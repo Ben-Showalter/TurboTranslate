@@ -92,8 +92,8 @@ class GroqVoiceInputHelper(private val context: Context) {
         mr.release()
         Log.i(TAG, "recording stopped, uploading ${file.length()} bytes")
 
-        if (GroqConfig.API_KEY.isBlank() || GroqConfig.API_KEY == "PUT_YOUR_GROQ_API_KEY_HERE") {
-            onError("No Groq API key set yet — see README")
+        if (GroqConfig.getApiKey().isBlank()) {
+            onError("No Groq API key — paste it into ${GroqConfig.KEY_FILE_PATH}")
             file.delete()
             return
         }
@@ -124,7 +124,7 @@ class GroqVoiceInputHelper(private val context: Context) {
 
                 val request = Request.Builder()
                     .url("https://api.groq.com/openai/v1/audio/transcriptions")
-                    .addHeader("Authorization", "Bearer ${GroqConfig.API_KEY}")
+                    .addHeader("Authorization", "Bearer ${GroqConfig.getApiKey()}")
                     .post(requestBody)
                     .build()
 
