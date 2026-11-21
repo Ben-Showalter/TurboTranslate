@@ -107,6 +107,7 @@ class TranslatorActivity : AppCompatActivity() {
         private const val STORAGE_PERMISSION_REQUEST_CODE = 302
         private const val CAMERA_CAPTURE_REQUEST_CODE = 400
         private const val TAG = "TurboTranslateActivity"
+        private const val STATE_PENDING_PHOTO_URI = "pending_photo_uri"
 
         // Asked at most once per process, so a declined prompt doesn't
         // come back on every resume.
@@ -115,6 +116,12 @@ class TranslatorActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // The camera app can get this activity destroyed and recreated
+        // while it's open (low memory on these phones, or the camera
+        // rotating the screen) — without this, the returning photo was
+        // silently dropped because pendingPhotoUri had been lost.
+        @Suppress("DEPRECATION")
+        pendingPhotoUri = savedInstanceState?.getParcelable(STATE_PENDING_PHOTO_URI)
         setContentView(R.layout.activity_translator)
 
         voiceHelper = GroqVoiceInputHelper(this)
@@ -143,6 +150,9 @@ class TranslatorActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // Our own bottom bar shows the soft-key labels; hide the system's
+        // white one (Flip-DumbPhoneGuide, templates/SystemBars.kt).
+        SystemBars.hideNavigation(this)
         isAway = false
         // The other language may have just changed in LanguagePickerActivity —
         // refresh every label that names it.
@@ -259,6 +269,13 @@ class TranslatorActivity : AppCompatActivity() {
                 else -> showUpdatePrompt(release)
             }
         }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        // Dialogs (Options, update prompt, permission prompts) can bring
+        // the system's white soft-key bar back; hide it again.
+        if (hasFocus) SystemBars.hideNavigation(this)
     }
 
     override fun onPause() {
@@ -474,6 +491,9 @@ class TranslatorActivity : AppCompatActivity() {
         pendingPhotoUri = uri
         val captureIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
             putExtra(MediaStore.EXTRA_OUTPUT, uri)
+            // Android normally grants this on its own for IMAGE_CAPTURE;
+            // explicit, so an OEM camera can always write the file.
+            addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         if (captureIntent.resolveActivity(packageManager) != null) {
             @Suppress("DEPRECATION")
@@ -484,14 +504,29 @@ class TranslatorActivity : AppCompatActivity() {
         }
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        pendingPhotoUri?.let { outState.putParcelable(STATE_PENDING_PHOTO_URI, it) }
+    }
+
     @Suppress("DEPRECATION")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != CAMERA_CAPTURE_REQUEST_CODE) return
         val uri = pendingPhotoUri
         pendingPhotoUri = null
-        if (resultCode == RESULT_OK && uri != null) {
+        if (uri == null) return
+        // Some OEM camera apps report RESULT_CANCELED even after saving the
+        // photo, so go by whether the file actually got written.
+        val written = try {
+            contentResolver.openInputStream(uri)?.use { it.read() != -1 } == true
+        } catch (e: Exception) {
+            false
+        }
+        if (written) {
             processPhoto(uri)
+        } else if (resultCode == RESULT_OK) {
+            Toast.makeText(this, "The camera didn't save a photo — try again", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -522,6 +557,7 @@ class TranslatorActivity : AppCompatActivity() {
 
         val otherLanguage = SettingsHelper.getOtherLanguage(this)
         GroqVisionHelper.extractAndTranslate(
+            context = this,
             imageFile = file,
             otherLanguage = otherLanguage,
             onResult = { result ->
@@ -539,7 +575,7 @@ class TranslatorActivity : AppCompatActivity() {
             },
             onError = { message ->
                 listeningIndicator.visibility = View.GONE
-                Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, message, Toast.LENGTH_LONG).show()
             }
         )
     }

@@ -27,6 +27,16 @@ class LanguagePickerActivity : AppCompatActivity() {
 
     private val queryDigits = StringBuilder()
 
+    override fun onResume() {
+        super.onResume()
+        SystemBars.hideNavigation(this)
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) SystemBars.hideNavigation(this)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_language_picker)
