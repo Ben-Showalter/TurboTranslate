@@ -150,6 +150,9 @@ class TranslatorActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // Our own bottom bar shows the soft-key labels; hide the system's
+        // white one (Flip-DumbPhoneGuide, templates/SystemBars.kt).
+        SystemBars.hideNavigation(this)
         isAway = false
         // The other language may have just changed in LanguagePickerActivity —
         // refresh every label that names it.
@@ -266,6 +269,13 @@ class TranslatorActivity : AppCompatActivity() {
                 else -> showUpdatePrompt(release)
             }
         }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        // Dialogs (Options, update prompt, permission prompts) can bring
+        // the system's white soft-key bar back; hide it again.
+        if (hasFocus) SystemBars.hideNavigation(this)
     }
 
     override fun onPause() {
