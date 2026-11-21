@@ -62,6 +62,10 @@ object GroqVisionHelper {
         onResult: (PhotoTranslationResult) -> Unit,
         onError: (String) -> Unit
     ) {
+        if (GroqConfig.getApiKey().isBlank()) {
+            onError(GroqConfig.missingKeyMessage())
+            return
+        }
         val appContext = context.applicationContext
         Thread {
             try {
@@ -134,10 +138,14 @@ object GroqVisionHelper {
                         sendReasoning = false
                         continue
                     }
-                    // Show Groq's own reason (e.g. a bad key) — the user
-                    // has no logcat on the phone.
-                    val reason = errMessage ?: "check your API key / internet"
-                    mainHandler.post { onError("Photo translation error $code: $reason") }
+                    // Show Groq's own reason — the user has no logcat on
+                    // the phone. A 401 says which key was sent instead.
+                    val message = if (code == 401) {
+                        GroqConfig.rejectedKeyMessage()
+                    } else {
+                        "Photo translation error $code: ${errMessage ?: "check your API key / internet"}"
+                    }
+                    mainHandler.post { onError(message) }
                     return@Thread
                 }
             } catch (e: IOException) {
