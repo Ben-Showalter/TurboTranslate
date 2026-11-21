@@ -121,7 +121,14 @@ object GroqVisionHelper {
                     val bodyStr = response.body?.string() ?: ""
                     if (!response.isSuccessful) {
                         Log.e(TAG, "Groq error ${response.code}: $bodyStr")
-                        mainHandler.post { onError("Photo translation error ${response.code} — check your API key / internet") }
+                        // Show Groq's own reason (e.g. a retired model or a
+                        // bad key) — the user has no logcat on the phone.
+                        val reason = try {
+                            JSONObject(bodyStr).getJSONObject("error").getString("message")
+                        } catch (e: Exception) {
+                            "check your API key / internet"
+                        }
+                        mainHandler.post { onError("Photo translation error ${response.code}: $reason") }
                         return@Thread
                     }
                     val content2 = JSONObject(bodyStr).getJSONArray("choices")
