@@ -30,6 +30,15 @@ object SettingsHelper {
         prefs(context).edit().putLong("last_update_check_at", time).apply()
     }
 
+    /** The Groq vision model GroqVisionHelper last found working, once
+     *  it has had to move off its built-in default (null = use the default). */
+    fun getVisionModel(context: Context): String? =
+        prefs(context).getString("vision_model", null)
+
+    fun setVisionModel(context: Context, model: String) {
+        prefs(context).edit().putString("vision_model", model).apply()
+    }
+
     /** Persists the transcript across app restarts — called after every
      *  new entry so a force-close never loses anything. Only the last
      *  MAX_TRANSCRIPT_ENTRIES are ever saved (the adapter itself already

@@ -547,6 +547,7 @@ class TranslatorActivity : AppCompatActivity() {
 
         val otherLanguage = SettingsHelper.getOtherLanguage(this)
         GroqVisionHelper.extractAndTranslate(
+            context = this,
             imageFile = file,
             otherLanguage = otherLanguage,
             onResult = { result ->

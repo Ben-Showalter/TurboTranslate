@@ -1,5 +1,6 @@
 package com.turbotranslate.app
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
@@ -21,6 +22,10 @@ import java.util.concurrent.TimeUnit
 
 private const val TAG = "TurboTranslateVision"
 private const val MAX_DIMENSION = 1280
+
+// What Groq's vision docs point to (qwen3.6-27b was retired in late 2026).
+// If this goes away too, findVisionModel picks a replacement at runtime.
+private const val DEFAULT_VISION_MODEL = "qwen/qwen3.8-27b"
 
 /** Result of a photo translation: [detectedLanguage] is whatever the
  *  model reports the extracted text was written in (not necessarily the
@@ -51,11 +56,13 @@ object GroqVisionHelper {
      *  otherwise always translates non-English text found in the photo
      *  to English, whatever language it actually is. */
     fun extractAndTranslate(
+        context: Context,
         imageFile: File,
         otherLanguage: String,
         onResult: (PhotoTranslationResult) -> Unit,
         onError: (String) -> Unit
     ) {
+        val appContext = context.applicationContext
         Thread {
             try {
                 val base64Image = downscaleAndEncode(imageFile)
@@ -83,76 +90,55 @@ object GroqVisionHelper {
                         })
                     })
                 }
-                val messages = JSONArray().apply {
-                    put(JSONObject().apply {
-                        put("role", "user")
-                        put("content", content)
-                    })
-                }
-                val requestBody = JSONObject().apply {
-                    put("model", "qwen/qwen3.6-27b")
-                    put("messages", messages)
-                    put("temperature", 0.2)
-                    // reasoning_format=hidden only hides the model's
-                    // chain-of-thought from the response — it doesn't stop
-                    // the model from generating it, and that hidden
-                    // reasoning still counts against max_completion_tokens.
-                    // 500 was too tight: the model spent the whole budget
-                    // thinking and never got to write the visible answer,
-                    // which came back as an empty string. reasoning_effort
-                    // "none" skips the thinking step for this model (it
-                    // only accepts "none" or "default" — "low"/"medium"/
-                    // "high" are for other Groq-hosted reasoning models
-                    // and get rejected here with a 400), and the token cap
-                    // is raised well past what a short three-line answer
-                    // should ever need either way.
-                    put("reasoning_effort", "none")
-                    put("max_completion_tokens", 2048)
-                    put("reasoning_format", "hidden")
-                }.toString().toRequestBody("application/json".toMediaTypeOrNull())
 
-                val request = Request.Builder()
-                    .url("https://api.groq.com/openai/v1/chat/completions")
-                    .addHeader("Authorization", "Bearer ${GroqConfig.getApiKey()}")
-                    .post(requestBody)
-                    .build()
+                // Groq retires vision models every few months (llama-3.2
+                // vision, then qwen3.6-27b). If the model is gone, look up
+                // what the key can use now and switch to it, rather than
+                // breaking until the next app update.
+                val savedModel = SettingsHelper.getVisionModel(appContext)
+                var model = savedModel ?: DEFAULT_VISION_MODEL
+                var sendReasoning = usesReasoningParams(model)
+                var switchedModel = false
+                var droppedReasoning = false
+                while (true) {
+                    val (code, bodyStr) = postChat(model, content, sendReasoning)
+                    if (code in 200..299) {
+                        if (model != savedModel) SettingsHelper.setVisionModel(appContext, model)
+                        handleSuccess(bodyStr, onResult, onError)
+                        return@Thread
+                    }
+                    Log.e(TAG, "Groq error $code from $model: $bodyStr")
+                    val (errCode, errMessage) = errorInfo(bodyStr)
 
-                client.newCall(request).execute().use { response ->
-                    val bodyStr = response.body?.string() ?: ""
-                    if (!response.isSuccessful) {
-                        Log.e(TAG, "Groq error ${response.code}: $bodyStr")
-                        // Show Groq's own reason (e.g. a retired model or a
-                        // bad key) — the user has no logcat on the phone.
-                        val reason = try {
-                            JSONObject(bodyStr).getJSONObject("error").getString("message")
-                        } catch (e: Exception) {
-                            "check your API key / internet"
+                    val modelGone = code == 404 ||
+                        errCode == "model_not_found" || errCode == "model_decommissioned"
+                    if (modelGone && !switchedModel) {
+                        switchedModel = true
+                        val next = findVisionModel(exclude = model)
+                        if (next == null) {
+                            mainHandler.post { onError("Groq has no image model available for this key right now") }
+                            return@Thread
                         }
-                        mainHandler.post { onError("Photo translation error ${response.code}: $reason") }
-                        return@Thread
+                        Log.i(TAG, "vision model $model unavailable, switching to $next")
+                        model = next
+                        sendReasoning = usesReasoningParams(next)
+                        droppedReasoning = false
+                        continue
                     }
-                    val content2 = JSONObject(bodyStr).getJSONArray("choices")
-                        .getJSONObject(0)
-                        .getJSONObject("message")
-                        .getString("content")
-                        .trim()
-                    Log.i(TAG, "vision response: \"$content2\"")
-
-                    if (content2.equals("NO_TEXT_FOUND", ignoreCase = true)) {
-                        mainHandler.post { onError("No readable text found in that photo") }
-                        return@Thread
+                    // A model that doesn't know the reasoning parameters
+                    // rejects the whole request; try once without them.
+                    if (code == 400 && sendReasoning && !droppedReasoning &&
+                        errMessage?.contains("reasoning", ignoreCase = true) == true
+                    ) {
+                        droppedReasoning = true
+                        sendReasoning = false
+                        continue
                     }
-                    if (content2.isEmpty()) {
-                        mainHandler.post { onError("Groq returned an empty response — try again") }
-                        return@Thread
-                    }
-
-                    val result = parseResponse(content2)
-                    if (result == null) {
-                        mainHandler.post { onError("Couldn't parse the translation response") }
-                    } else {
-                        mainHandler.post { onResult(result) }
-                    }
+                    // Show Groq's own reason (e.g. a bad key) — the user
+                    // has no logcat on the phone.
+                    val reason = errMessage ?: "check your API key / internet"
+                    mainHandler.post { onError("Photo translation error $code: $reason") }
+                    return@Thread
                 }
             } catch (e: IOException) {
                 Log.e(TAG, "network error", e)
@@ -162,6 +148,130 @@ object GroqVisionHelper {
                 mainHandler.post { onError("Photo translation error: ${e.message}") }
             }
         }.start()
+    }
+
+    // reasoning_effort/reasoning_format are Qwen-on-Groq parameters; other
+    // model families may reject them.
+    private fun usesReasoningParams(model: String) = model.startsWith("qwen/")
+
+    /** POSTs one chat-completions request and returns (HTTP code, body). */
+    private fun postChat(model: String, content: JSONArray, sendReasoning: Boolean): Pair<Int, String> {
+        val messages = JSONArray().apply {
+            put(JSONObject().apply {
+                put("role", "user")
+                put("content", content)
+            })
+        }
+        val requestBody = JSONObject().apply {
+            put("model", model)
+            put("messages", messages)
+            put("temperature", 0.2)
+            put("max_completion_tokens", 2048)
+            if (sendReasoning) {
+                // reasoning_format=hidden only hides the model's
+                // chain-of-thought from the response — it doesn't stop the
+                // model from generating it, and that hidden reasoning still
+                // counts against max_completion_tokens. 500 was too tight:
+                // the model spent the whole budget thinking and never wrote
+                // the visible answer. reasoning_effort "none" skips the
+                // thinking step for Qwen (it only accepts "none" or
+                // "default"), and the token cap above is well past what a
+                // short three-line answer needs either way.
+                put("reasoning_effort", "none")
+                put("reasoning_format", "hidden")
+            }
+        }.toString().toRequestBody("application/json".toMediaTypeOrNull())
+
+        val request = Request.Builder()
+            .url("https://api.groq.com/openai/v1/chat/completions")
+            .addHeader("Authorization", "Bearer ${GroqConfig.getApiKey()}")
+            .post(requestBody)
+            .build()
+        Log.i(TAG, "vision request to $model")
+        return client.newCall(request).execute().use { response ->
+            response.code to (response.body?.string() ?: "")
+        }
+    }
+
+    /** Groq's error JSON as (error.code, error.message), either null if absent. */
+    private fun errorInfo(body: String): Pair<String?, String?> =
+        try {
+            val err = JSONObject(body).getJSONObject("error")
+            err.optString("code").ifEmpty { null } to err.optString("message").ifEmpty { null }
+        } catch (e: Exception) {
+            null to null
+        }
+
+    /**
+     * Picks the best image-capable model the key can use, from Groq's
+     * model list (which doesn't say which models take images, so this goes
+     * by known vision-model families): the newest Qwen 27B first (what
+     * Groq's vision docs have pointed to since 2026), then anything
+     * labelled VL/vision, then Llama 4 Scout and Maverick.
+     */
+    private fun findVisionModel(exclude: String): String? {
+        val request = Request.Builder()
+            .url("https://api.groq.com/openai/v1/models")
+            .addHeader("Authorization", "Bearer ${GroqConfig.getApiKey()}")
+            .get()
+            .build()
+        val ids = client.newCall(request).execute().use { response ->
+            val body = response.body?.string() ?: ""
+            if (!response.isSuccessful) {
+                Log.e(TAG, "model list error ${response.code}: $body")
+                return null
+            }
+            val data = JSONObject(body).getJSONArray("data")
+            (0 until data.length()).map { data.getJSONObject(it) }
+                .filter { it.optBoolean("active", true) }
+                .map { it.getString("id") }
+                .filter { it != exclude }
+        }
+        Log.i(TAG, "available models: $ids")
+
+        val qwenVersion = Regex("^qwen/qwen([0-9.]+)-27b")
+        val qwen = ids.mapNotNull { id -> qwenVersion.find(id)?.let { id to it.groupValues[1] } }
+            .sortedWith(Comparator { a, b ->
+                when {
+                    UpdateChecker.isNewer(a.second, b.second) -> -1
+                    UpdateChecker.isNewer(b.second, a.second) -> 1
+                    else -> 0
+                }
+            })
+            .map { it.first }
+        val labelled = ids.filter { it.contains("-vl") || it.contains("vision") }
+        val scout = ids.filter { it.startsWith("meta-llama/llama-4-scout") }
+        val maverick = ids.filter { it.startsWith("meta-llama/llama-4-maverick") }
+        return (qwen + labelled + scout + maverick).firstOrNull()
+    }
+
+    private fun handleSuccess(
+        bodyStr: String,
+        onResult: (PhotoTranslationResult) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val content2 = JSONObject(bodyStr).getJSONArray("choices")
+            .getJSONObject(0)
+            .getJSONObject("message")
+            .optString("content")
+            .trim()
+        Log.i(TAG, "vision response: \"$content2\"")
+
+        if (content2.equals("NO_TEXT_FOUND", ignoreCase = true)) {
+            mainHandler.post { onError("No readable text found in that photo") }
+            return
+        }
+        if (content2.isEmpty()) {
+            mainHandler.post { onError("Groq returned an empty response — try again") }
+            return
+        }
+
+        val result = parseResponse(content2)
+        if (result == null) {
+            mainHandler.post { onError("Couldn't parse the translation response") }
+        } else {
+            mainHandler.post { onResult(result) }
+        }
     }
 
     private fun parseResponse(rawContent: String): PhotoTranslationResult? {
