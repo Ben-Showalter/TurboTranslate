@@ -10,7 +10,9 @@ import java.io.File
  * the APK. Get one free at https://console.groq.com/keys.
  *
  * A GROQ_API_KEY line in local.properties still works as a build-time
- * fallback (BuildConfig.GROQ_API_KEY) for builds made without the file.
+ * fallback (BuildConfig.GROQ_API_KEY), in debug builds only. It's used
+ * only when the file can't be read, so a stale key there shows up as a
+ * 401 naming "the built-in fallback".
  */
 object GroqConfig {
     private const val FOLDER_NAME = "Turbo Key"
@@ -35,13 +37,47 @@ object GroqConfig {
         }
     }
 
+    enum class KeySource(val label: String) {
+        FILE("the Turbo Key file"),
+        BUILT_IN("the built-in fallback (local.properties)"),
+        NONE("nowhere"),
+    }
+
     /** The key file's contents, else the build-time key, else "". */
-    fun getApiKey(): String {
+    fun getApiKey(): String = resolve().first
+
+    /** Where [getApiKey]'s key comes from, for error messages. */
+    fun keySource(): KeySource = resolve().second
+
+    private fun resolve(): Pair<String, KeySource> {
         val fromFile = try {
-            keyFile().readText().trim()
+            clean(keyFile().readText())
         } catch (e: Exception) {
-            ""
+            "" // unreadable — usually storage access not granted
         }
-        return fromFile.ifEmpty { BuildConfig.GROQ_API_KEY.trim() }
+        if (fromFile.isNotEmpty()) return fromFile to KeySource.FILE
+        val builtIn = clean(BuildConfig.GROQ_API_KEY)
+        if (builtIn.isNotEmpty()) return builtIn to KeySource.BUILT_IN
+        return "" to KeySource.NONE
+    }
+
+    /** First non-empty line, minus a byte-order mark or zero-width
+     *  characters (some editors add them, and trim() leaves them), quotes,
+     *  and a pasted "GROQ_API_KEY=" prefix. */
+    private fun clean(raw: String): String {
+        val line = raw.replace(Regex("[\\uFEFF\\u200B-\\u200D\\u2060]"), "")
+            .lineSequence().map { it.trim() }.firstOrNull { it.isNotEmpty() } ?: return ""
+        return line.removePrefix("GROQ_API_KEY=").trim().trim('"', '\'').trim()
+    }
+
+    /** One wording for "no key" across the voice, translate and photo paths. */
+    fun missingKeyMessage(): String = "No Groq API key — paste it into $KEY_FILE_PATH"
+
+    /** Toast text for a 401: says which key was sent, by its last 4
+     *  characters, so it can be checked against the key file. */
+    fun rejectedKeyMessage(): String {
+        val (key, source) = resolve()
+        return "Groq rejected the API key (401). Using the key from ${source.label}, " +
+            "ending …${key.takeLast(4)}"
     }
 }

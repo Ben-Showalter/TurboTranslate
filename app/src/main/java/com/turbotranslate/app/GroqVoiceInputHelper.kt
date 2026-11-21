@@ -93,7 +93,7 @@ class GroqVoiceInputHelper(private val context: Context) {
         Log.i(TAG, "recording stopped, uploading ${file.length()} bytes")
 
         if (GroqConfig.getApiKey().isBlank()) {
-            onError("No Groq API key — paste it into ${GroqConfig.KEY_FILE_PATH}")
+            onError(GroqConfig.missingKeyMessage())
             file.delete()
             return
         }
@@ -132,7 +132,12 @@ class GroqVoiceInputHelper(private val context: Context) {
                     val bodyStr = response.body?.string() ?: ""
                     if (!response.isSuccessful) {
                         Log.e(TAG, "Groq error ${response.code}: $bodyStr")
-                        mainHandler.post { onError("Groq error ${response.code} — check your API key / internet") }
+                        val message = if (response.code == 401) {
+                            GroqConfig.rejectedKeyMessage()
+                        } else {
+                            "Groq error ${response.code} — check your API key / internet"
+                        }
+                        mainHandler.post { onError(message) }
                         return@Thread
                     }
                     val text = JSONObject(bodyStr).optString("text").trim()

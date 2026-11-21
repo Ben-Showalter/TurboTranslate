@@ -166,18 +166,21 @@ class TranslatorActivity : AppCompatActivity() {
 
     /**
      * The Groq key is read from GroqConfig.KEY_FILE_PATH, which needs
-     * storage access. If there's no usable key yet, asks for that access
-     * (or, with access already granted, says where to paste the key).
+     * storage access. Asks for that access whenever it's missing — even if
+     * a built-in fallback key exists, since that one may be stale (it
+     * caused 401s on an E4610 that had never been asked) — and, with
+     * access but no key, says where to paste it.
      */
     private fun checkApiKeyAccess() {
         // Creates the file once access exists, if no other Turbo app has.
         GroqConfig.ensureKeyFileExists()
-        if (GroqConfig.getApiKey().isNotBlank() || keyAccessPrompted) return
-        keyAccessPrompted = true
-        if (hasStorageAccess()) {
-            showMissingKeyToast()
-        } else {
+        if (keyAccessPrompted) return
+        if (!hasStorageAccess()) {
+            keyAccessPrompted = true
             requestStorageAccess()
+        } else if (GroqConfig.getApiKey().isBlank()) {
+            keyAccessPrompted = true
+            showMissingKeyToast()
         }
     }
 
@@ -211,11 +214,7 @@ class TranslatorActivity : AppCompatActivity() {
     }
 
     private fun showMissingKeyToast() {
-        Toast.makeText(
-            this,
-            "No Groq API key — paste it into ${GroqConfig.KEY_FILE_PATH}",
-            Toast.LENGTH_LONG
-        ).show()
+        Toast.makeText(this, GroqConfig.missingKeyMessage(), Toast.LENGTH_LONG).show()
     }
 
     /**
@@ -384,13 +383,13 @@ class TranslatorActivity : AppCompatActivity() {
                     },
                     onError = { message ->
                         listeningIndicator.visibility = View.GONE
-                        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
                     }
                 )
             },
             onError = { message ->
                 listeningIndicator.visibility = View.GONE
-                Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, message, Toast.LENGTH_LONG).show()
             }
         )
     }

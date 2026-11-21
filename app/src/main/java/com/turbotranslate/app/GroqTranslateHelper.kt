@@ -41,6 +41,10 @@ object GroqTranslateHelper {
         onResult: (String) -> Unit,
         onError: (String) -> Unit
     ) {
+        if (GroqConfig.getApiKey().isBlank()) {
+            onError(GroqConfig.missingKeyMessage())
+            return
+        }
         Thread {
             try {
                 val messages = JSONArray().apply {
@@ -79,7 +83,12 @@ object GroqTranslateHelper {
                     val bodyStr = response.body?.string() ?: ""
                     if (!response.isSuccessful) {
                         Log.e(TAG, "Groq error ${response.code}: $bodyStr")
-                        mainHandler.post { onError("Translation error ${response.code} — check your API key / internet") }
+                        val message = if (response.code == 401) {
+                            GroqConfig.rejectedKeyMessage()
+                        } else {
+                            "Translation error ${response.code} — check your API key / internet"
+                        }
+                        mainHandler.post { onError(message) }
                         return@Thread
                     }
                     val json = JSONObject(bodyStr)
